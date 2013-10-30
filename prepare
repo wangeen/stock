@@ -1,0 +1,232 @@
+PPT code 
+
+高性能程序的编写
+在软件的一般的基础上描述一下如何提高软件性能以及避免不必要的陷阱。
+
+
+1) 算法
+a) 对stl相应的容器的选择
+list vector
+通常来讲vector的类似数组结构和list的链表结构决定了他们的适应范围，但是插入的object大小会他们的效率也有很大影响，一般来讲如果object越大list越有优势，如果不是很大尽量使用vector.
+如果涉及到vector具体的使用仍然有比较大的优化空间，比如vector的内存一直都分配在heap上，其实如果这个vector比较小的话是没有必要这么做的放在stack上就足够了，另外vector的内存增加因子是2但是这不一定是最合适的，如果vector的规模太大很可能造成内存的严重浪费，这些参照facebook opensource library做的相应的改进。
+b) map  unordered_map（hash）
+如果没有排序的必要，尽量选择unordered_map, hash在速度方面具有无法替代的优势，好的hash function的选择也是一个重要的问题，尽量用到所有的关键字.
+        |   199 size_t
+|   200 HashString (const string& s)
+        |-  201 {
+                ||  202     size_t  hash = 0;
+                ||  203     const char*  cp = s.data();
+                ||  204     const char*  end = cp + s.size();
+                ||  205     for ( ;  cp != end;  ++cp)
+                        ||  206         hash = 19*hash + static_cast<unsigned char>(*cp);
+                ||  207     return hash;
+                ||  208 }
+
+
+
+                2) 程序自身的算法结构
+                这个要根据软件的特征具体实现，不同的应用不同的结构都会有不同的算法，不同的算法会对软件的效率带来根本性的差别，这样的算法的选择一定要慎重。
+                delete??
+                比如之前我做个一个芯片设计图像查看软件，芯片表达文件的结构本身是一个有向无环图的数据结构，如果我们从图的顶层开始画，所有的cell的每一个instance都要画一遍，这个代价太高，要知道一个cell有几百万个instance也很正常，而且随着层次越深代价就越大，我查看过其他很多类似的软件就是这么去做的导致画图很慢，后来我采用从leaf往top画，一层一层的贴到相应parent，大大减少了读取数据和画图的次数显示的速度自然快了很多。
+
+
+                3) 并行
+                并行是基于硬件结构的优化，要把计算机的硬件资源最大化的利用好，这里我主要实践过多线程，openMP，openMPI，Cuda
+                首先要发挥集群计算的能力，用MPI是个不二的选择。
+                其次为了充分利用cpu和gpu的多核计算能力，有一系列的库可以选择，openMP openACC CUDA OpenCL ，openMP openACC是同一层次的接口，是share memory并行，openACC比openMP有所扩展，主要是在GPU的方面，这一层的实现比较简单，如果这一层已经足够了，不要刻意把问题复杂化使用更复杂的调用接口，CUDA OpenCL差不多是一层，openCL的优势在于扩展行强，他只是一个通用的标准，和MPI一样有很多实现，所以对于不同的多核硬件都可以很好的支持，但是Cuda是Nvidia的特别实现，效率上会比openCL略胜一筹，然后还有一个参考是基于前面架构有没有一些现成的库可以使用，比如fft blas等等。
+
+                4) memory pool
+                内存池则是在真正使用内存之前，先申请分配一定数量的、大小相等（一般情况下）的内存块留作备用。当有新的内存需求时，就从内存池中分出一部分内存块，若内存块不够再继续申请新的内存。这样做的一个显著优点是尽量避免了内存碎片，减少了内存分配的次数，使得内存分配效率得到提升。
+                比如下面是一个用来存储大量string的memory pool的接口示例。
+                |-   53 class StringPool {
+                        |||  55         Block*  next;
+                        |||  56         char*   end;
+                        |||  57     };  
+||   58         
+||   59 private:
+||   60     Block*      firstBlock;     // first in chain of blocks
+||   61     Block*      currBlock;      // allocate from this block
+||   62     char*       nextc;          // first free byte in currBlock                                                   
+||   63     size_t      blockSize;      // size of normal blocks                                                          
+||   64             
+||   65 public: 
+||   66     explicit    StringPool (size_t normalBlockSize = 8192);                                                       
+||   67                 ~StringPool();
+||   68     char*       alloc (size_t nbytes);                                                                            
+||   69     char*       newString (const char* str);
+||   70     char*       newString (const char* str, size_t len);
+||   71     void        clear();
+||   72     
+||   73 private:                                                                                                          
+||   74     static size_t  getBlockSize (Block* block);                                                                   
+||   75     void        allocNewBlock (size_t size);                                                                      
+||   76     char*       extendAlloc (size_t nbytes);                                                                      
+||   77                                                                                                                   
+||   78 private:                                                                                                          
+||   79                 StringPool (const StringPool&);         // forbidden                                              
+||   80     void        operator= (const StringPool&);          // forbidden                                              
+||   81 };   
+
+
+5) 文件的读写
+每次读取的到内存的buffer的size要保证是硬盘扇区大小的整数倍数，同样写的时候也要有这样一个buffer才比较合理。不合理的buffer size导致程序读写的速度慢好几倍也是有可能的。另外如果文件不是特别巨大，还可以考虑内存映射，这总方式可以避免内核向应用层的再次copy。
+
+
+6) 工具的选择
+有些现成的工具的选择，往往会使软件的效率的提升起到事半功倍的效果。
+a) tcmalloc，这个是google开发的对多线程优化的malloc库，用他来代替linux本身的malloc效率提升非常明显，类似的这样的内存分配的库还有很多可供选择。
+b) icc, icc是intel开发的针对与gcc的编译器，由于起自身的技术优势其对intel的CPU有特别地优化，编译出来的软件普遍也快一些。
+c) 辅助工具， valgrind massif vtune gdb
+
+
+7) 基于CPU的优化
+由于现在CPU复杂的工艺，很多结构都让我们都有优化的空间，比如分支预测，Cache，vector instruction等等
+超线程
+
+分支预测
+#include <algorithm>
+#include <ctime>
+#include <iostream>
+int main()
+{
+        // Generate data
+        const unsigned arraySize = 32768;
+        int data[arraySize];
+
+        for (unsigned c = 0; c < arraySize; ++c)
+                data[c] = std::rand() % 256;
+
+        // !!! With this, the next loop runs faster
+        std::sort(data, data + arraySize);
+
+        // Test
+        clock_t start = clock();
+        long long sum = 0;
+
+        for (unsigned i = 0; i < 100000; ++i)
+        {
+                // Primary loop
+                for (unsigned c = 0; c < arraySize; ++c)
+                {
+                        if (data[c] >= 128)
+                                sum += data[c];
+                }
+        }
+
+        double elapsedTime = static_cast<double>(clock() - start) / CLOCKS_PER_SEC;
+
+        std::cout << elapsedTime << std::endl;
+        std::cout << "sum = " << sum << std::endl;
+}
+Without std::sort(data, data + arraySize);, the code runs in 11.54 seconds.
+With the sorted data, the code runs in 1.93 seconds.
+
+        if(int i=0; i<1000; ++i){  // for cpu 密集调用  
+                if(cond) // 分支预测  
+                        do();  
+                else   
+                        do2();  
+        }  
+＝＝＝＝＝＝＝＝＝＝＝＝＝＝》  
+if(cond){  // 避免了CPU密集调用时进行分支预测  
+        if(int i=0; i<1000; ++i)   do();  
+}else{  
+        if(int i=0; i<1000; ++i)  do1();  
+}  
+
+
+CPU还有个特性就是有L1 L2分段缓存，对于分段缓存我们尽量让他们都利用好，不要因为部分数据的需求刷里面的内容，比如二维数组的纵向变例会比横向遍历糟糕很多，因为横向遍历会保证cache中数据的连续性，纵向遍历就要频繁的刷新cache。
+
+8) 基于编译器的优化
+编译器的O1 O2 O3是不二的选择，但是我们还是要避免一些问题，让编译器能更好的把优化进行下去。
+1的优化级别，即使这样作者也可以写出相当于O3的速度的代码甚至比这个还要高, 编译器本身的优化已经很可观了，但是还是不如写得谨慎的代码，因为编译器每做一个优化都要很小心，担心会不会有负面效果，它不能完全的优化到最优的代码组合的程度。
+1. optimize blocker 有一些会阻碍编译器自动的优化代码，
+a) memory aliasing，就是当两个指针指向同一内存的时候，
+[cpp] view plaincopy
+void add1(int* a, int* b){  
+        *a += *b;   // 2次读  1次写  
+        *a += *b;  
+}  // 共进行6次对内存的访问  
+
+void add2(int*a, int*b){  
+        *a += 2 * *b; //  2次读  1次写， 2是immediate varaible， 不需要对内存访问  
+}  
+显然如果是这样的情况，编译器仍对其优化，如果a和b指向同一内存，显然会导致错误的结果，add1番了4倍而add2只有3倍，事实上有很多这样的情况会导致编译器无法优化。
+b) function call
+[cpp] view plaincopy
+void a(){  
+        return f()+f()+f()+f(); // 调用4次  
+}  
+
+void b(){  
+        return 4*f(); // 调用1次  
+}  
+但是如果  
+void f() {  ++state; }   
+
+编译器就没有办法优化这种带有状态变化的函数，当然我们可以通过inline（-finline   ）来优化这样的代码。
+
+2. expressing program performance如何量化程序效率
+clock cycles per element (CPE). 表达了随着处理数据的规模的增加CPU时钟周期增加的速度。
+
+3. 优化的方式
+a)   尽量将loop内的操作移到外面做。
+b）尽量少传递参数，减少函数调用，因为函数调用由于memory aliasing的原因，它很难作出优化。
+c）尽量去处不必要的指针的内存读写，用immediate 变量代替
+文章讲述了一个很好的例子怎么自己优化到了O3的级别，并比较了其汇编的代码，很有启发。
+
+4. 建立在CPU结构上的优化
+之前的优化不依赖任何CPU，如果我们还需要更深层次的优化，就需要依赖不同CPU的架构了。
+prime 计算的效率
+
+Integer                  Single-precision          Double-precision
+Operation    Latency Issue         Latency Issue              Latency Issue
+Addition            1       0.33                      3     1                                   3     1
+Multiplication       3    1                        4     1                                        5    1
+Division         11–21  5–13       10–15 6–11                   10–23 6–19 
+latency 是运行的时钟周期个数，issue 表示两次operations之间的等待周期，这个是由于pipeline造成的（因为他们不需要等待整个指令运行好了之后才开始另一个，而是几分之一指令时间就可以了）。
+5. 展开循环
+循环展开可以有效的提高效率，循环展开不一定要全部展开，部分也行，比如从 ++i 到 i+=2 的变化，
+gcc可以帮我们做到循环展开   ‘-funroll-loops’.    
+
+6. 提高并行程度（利用pipeline）
+这里的并行是利用的指令执行的latency来并行，比如如果一个乘法要三个latency，如果有前后依赖的关系，比如算法要像流水线一样的执行，那么就不能利用上这剩下的两个latency，但是如果我们能拆成多个相互暂时不依赖的流水线，将会产生并行的效果， 下面一段是我看到过最美的代码。
+[cpp] view plaincopy
+/* Unroll loop by 2, 2-way parallelism */  
+void combine6(vec_ptr v, data_t *dest)  
+{  
+        long int i;  
+        long int length = vec_length(v);  
+        long int limit = length-1;  
+        data_t *data = get_vec_start(v);  
+        data_t acc0 = IDENT;  
+        data_t acc1 = IDENT;  
+
+        /* Combine 2 elements at a time */  
+        for(i=0;i<limit;i+=2){  
+                acc0 = acc0 OP data[i];  
+                acc1 = acc1 OP data[i+1];  
+        }  
+
+        /* Finish any remaining elements */  
+        for (; i < length; i++) {  
+                acc0 = acc0 OP data[i];  
+        }  
+        *dest = acc0 OP acc1;  
+}  
+Figure 5.21 Unrolling loop by 2 and using two-way parallelism. This approach makes use of the pipelining capability of the functional units.  
+对于上面相同的操作gcc用另一种优化办法做到相近的结果，
+[cpp] view plaincopy
+acc = (acc OP data[i]) OP data[i+1];   
+// 先算后面两个  
+acc = acc OP (data[i] OP data[i+1]);  
+这个理解起来比较困难，之所以可以提高效率，是因为第二次循环的后面的两个相乘，可以和第一次循环的前面的两个相乘同步进行。
+
+
+7. 一些限制优化的因素
+a） 由于寄存器的数目的限制，不可能无限的并行，如果过多的像利用pileline并行，反而会导致这个数据被塞到stack上，反而使效率变差，所有并行多少个比较合适，依赖不同的CPU的类型。
+b）分支预测错误。
+
+
+精度与效率的选择
+在精度允许的范围内,我们完全可以用float代替double，一般来讲float会比double快一倍。

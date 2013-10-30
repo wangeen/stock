@@ -1,0 +1,38 @@
+#IncludeRegexLine: ^[ 	]*#[ 	]*(include|import)[ 	]*[<"]([^">]+)([">])
+
+#IncludeRegexScan: ^.*$
+
+#IncludeRegexComplain: ^$
+
+#IncludeRegexTransform: 
+
+.././common/global.h
+iostream
+-
+map
+-
+deque
+-
+
+/home/jinwang/Dropbox/test/client/main.cpp
+iostream
+-
+stdio.h
+-
+sys/socket.h
+-
+arpa/inet.h
+-
+stdlib.h
+-
+string.h
+-
+unistd.h
+-
+netinet/in.h
+-
+sys/time.h
+-
+global.h
+/home/jinwang/Dropbox/test/client/global.h
+

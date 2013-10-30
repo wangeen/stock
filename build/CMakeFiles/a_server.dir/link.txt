@@ -1,0 +1,1 @@
+/usr/bin/c++       CMakeFiles/a_server.dir/server/main.cpp.o CMakeFiles/a_server.dir/server/./a_server_generated_coefficient.cu.o  -o a_server -rdynamic /usr/local/cuda/lib/libcudart.so -lcuda /usr/local/lib/libpcap.so -Wl,-rpath,/usr/local/cuda/lib:/usr/local/lib 

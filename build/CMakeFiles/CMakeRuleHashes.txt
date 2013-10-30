@@ -1,0 +1,2 @@
+# Hashes of file build rules.
+c9c58b83e89f3c4b9506952063cf47a8 CMakeFiles/a_server.dir/server/./a_server_generated_coefficient.cu.o
